@@ -1,0 +1,174 @@
+---
+title: "Maven Analytics SQL course project"
+author: "Goku"
+date: "3/8/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r, echo=FALSE}
+#install.packages("odbc",dependencies = TRUE)
+#install.packages("DBI",dependencies = TRUE)
+#install.packages("dbplyr")
+#install.packages("knitr")
+#install.packages("rmarkdown")
+```
+### Connect to database "mavenfuzzyfactory"
+
+```{r setup,echo=FALSE}
+library(DBI)
+# Connect to database 
+con <- dbConnect(RMariaDB::MariaDB(),
+                 dbname = "mavenfuzzyfactory",
+                 username = "root",
+                 password="frendaty",
+                 port="3306")
+# other ways of asking however its stopping knitr
+#username = rstudioapi::showPrompt(title = "User Name",message = "username", default = "")
+#username =rstudioapi::askForPassword("Please enter MySQL UID")
+```
+
+```{r}
+#Set all below chunks connection directly to con
+knitr::opts_chunk$set(connection = "con",echo = TRUE)
+```
+
+
+### Explore the database and fields 
+```{sql, connection = con}
+show tables;
+-- Describe website_sessions;
+-- Describe orders;
+-- Describe website_pageviews;
+```
+#### Email (1)
+Date - April 12 2012 - from CEO - subject site traffic breakdown
+
+Good morning, we have been working since a month now with the paid traffic. can you help me understand where our bulk website sessions are coming form, through yesterday ?
+I'd like to see a break down by UTM source, campaign and referring domain if possible.
+Thanks.
+
+```{sql,connection = con}
+/*
+Request interpretation:
+  -What we are looking for ?
+  -source of most website session grouped by UTM,campaign and referring website.
+  -conditioning the period before 12 April 2012 ,date of the email recieved.
+*/
+
+-- Describe website_sessions;
+select count( distinct website_session_id) as sessions,
+        utm_source,
+        utm_campaign,
+        http_referer
+from website_sessions
+where created_at <= date('2012-04-12')
+      AND utm_source != 'NA' -- just to remove any sources with unknown sources
+group by  utm_source,
+          utm_campaign,
+          http_referer
+order by sessions desc;
+```
+#### Email (2)
+Date - April 14 2012 - from Marketting director - gsearch conversion rate
+
+Sounds like "gsearch nonbrand" is our major traffic source however, we need to link it to our sales. 
+Could you please calculate the convrsion rate "CVR" from session to orders ?
+Based on what we are paying for clicks, we need "CVR" of at least 4% to make it worth the investment. If we are much lower we need to reduce the bids, if we are higher we can increase bids to increase vloume sales.
+Thanks
+
+```{sql,connection = con}
+/*
+Request interpretation:
+  -which website sessions,that are gsearch nonbrand ,have a placed order "a sale" ?
+  -what is their conversion rate "total numbr of sessions with orders/total number of sessions
+
+Steps:
+ -query unique website_sessions for gsearch and nonbrand before 12 April
+ -query unique  website_sessions that made a sale from Orders table
+ -join the two tables via a subquery.
+ -right join because all sub1 records are retrieved 
+*/
+
+-- Describe orders;
+-- Describe website_sessions;
+select count(distinct o2.website_session_id) as orders,
+		count(distinct sub1.sessions) as essions,
+			count(distinct o2.website_session_id) / count(distinct sub1.sessions) *100 as CVR_gsearch_nonbrand
+	from orders o2
+	right join (select distinct website_session_id as sessions
+				from website_sessions ws 
+				where ws.created_at <= date('2012-04-14')
+				AND  ws.utm_source = 'gsearch'
+				AND  ws.utm_campaign = 'nonbrand') sub1
+	ON sub1.sessions = o2.website_session_id; 
+
+```
+
+
+```{sql,connection = con}
+
+select count(distinct o2.website_session_id) as orders,
+		count(distinct ws.website_session_id) as sessions,
+			count(distinct o2.website_session_id) / count(distinct ws.website_session_id) *100 as CVR_gsearch_nonbrand
+from orders o2
+right join website_sessions as ws
+ON ws.website_session_id = o2.website_session_id
+where ws.created_at <= date('2012-04-14')
+				AND  ws.utm_source = 'gsearch'
+				AND  ws.utm_campaign = 'nonbrand';
+```
+
+#### side code
+Pivot table in SQL via case when statments
+  (rows and columns as catagorical variables) and their respective aggregated values.
+
+```{sql,connection =con}
+-- Find the number of orders per primary product_id
+-- select count(distinct order_id),primary_product_id from orders group by 2;
+
+-- find the number of orders per primary_product_id for 1 and 2  items purchased
+select
+      primary_product_id,
+      count(distinct case when items_purchased = 1 then order_id else null end) as  1_item_purchased,
+      count(distinct case when items_purchased = 2 then order_id else null end) as 2_items_purchased,
+      count( distinct order_id) as 'total orders'
+from orders
+where order_id between 31000 AND 32000
+group by 1
+order by 1;
+
+```
+#### Email (3)
+ Date - May 10 2012 - from Marketting director - gsearch volume trends
+
+Hi there, based on your conversion rate analysis, we bid down "gsearch nonbrand" on April 15. Can you pull "gsearch nonbrand trended session volume per week, to see if the bid change caused any traffic to drop down to the site ?
+Thanks, Tom
+
+
+```{sql, connection = con}
+/*
+Request interpretation:
+  - is there a drop of number of sessions after April 15 ?
+  -
+
+Steps:
+ -query unique website_sessions for gsearch and nonbrand before 12 April
+ -query unique  website_sessions that made a sale from Orders table
+ -join the two tables via a subquery.
+ -right join because all sub1 records are retrieved 
+*/
+
+select 
+      min(date(created_at)),
+      
+      count(distinct case when created_at < date('2012-04-14') then website_session_id else null end )as bf,
+      count(distinct case when created_at between date('2012-04-15') AND date('2012-05-10') then website_session_id else null end ) as after
+from website_sessions
+where utm_source = 'gsearch'
+AND  utm_campaign = 'nonbrand'
+AND created_at < date('2012-05-10') 
+group by week(date(created_at));
+```
+

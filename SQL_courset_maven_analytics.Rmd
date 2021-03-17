@@ -21,8 +21,8 @@ library(DBI)
 # Connect to database 
 con <- dbConnect(RMariaDB::MariaDB(),
                  dbname = "mavenfuzzyfactory",
-                 username = "root",
-                 password="frendaty",
+                 username = rstudioapi::askForPassword("enter your server username"),
+                 password= rstudioapi::askForPassword("enter your server pwd"),
                  port="3306")
 # other ways of asking however its stopping knitr
 #username = rstudioapi::showPrompt(title = "User Name",message = "username", default = "")
@@ -170,5 +170,39 @@ where utm_source = 'gsearch'
 AND  utm_campaign = 'nonbrand'
 AND created_at < date('2012-05-10') 
 group by week(date(created_at));
+```
+#### Email (4)
+ Date - May 11 2012 - from Marketting director - gsearch device-level performance
+ 
+ Could you pull conversion rates from session to orders by end user device type ?
+ If desktop performance is better than on mobile device, then we may be able to bid up on desktop to reach more volume.
+Thanks
+```{sql connection = con}
+/*
+Request interpretation:
+  - is there a drop of number of sessions after April 15 ?
+  -
+
+Steps:
+ -query unique website_sessions for gsearch and nonbrand before 12 April
+ -query unique  website_sessions that made a sale from Orders table
+ -join the two tables via a subquery.
+ -right join because all sub1 records are retrieved 
+*/
+
+
+select count(distinct o2.website_session_id) as orders,
+		count(distinct ws.website_session_id) as sessions,
+			count(distinct o2.website_session_id) / count(distinct ws.website_session_id) *100 as CVR_gsearch_nonbrand,
+			ws.device_type
+from orders o2
+right join website_sessions as ws
+ON ws.website_session_id = o2.website_session_id
+where ws.created_at <= date('2012-04-14')
+				AND  ws.utm_source = 'gsearch'
+				AND  ws.utm_campaign = 'nonbrand'
+group by ws.device_type;
+
+
 ```
 
